@@ -1,40 +1,148 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>Bazi System</title>
+<title>命理分析系统_完整版</title>
+<style>
+body { font-family:"Microsoft YaHei",sans-serif; margin:0; padding:0; background:#f5f5f5; }
+header { background:#2c3e50; color:#fff; padding:10px 20px; font-size:24px; }
+nav { display:flex; background:#34495e; }
+nav button { flex:1; padding:10px; border:none; background:#34495e; color:#fff; cursor:pointer; }
+nav button.active { background:#1abc9c; }
+section { display:none; padding:20px; background:#fff; margin:10px; border-radius:5px; }
+section.active { display:block; }
+label { display:block; margin:10px 0 5px; }
+input, select { padding:5px; width:200px; }
+button.action { padding:5px 10px; margin-top:10px; cursor:pointer; background:#1abc9c; color:#fff; border:none; }
+.result-box { margin-top:20px; padding:10px; background:#ecf0f1; border-radius:5px; max-height:500px; overflow:auto; }
+table { width:100%; border-collapse:collapse; margin-top:10px; }
+table th, table td { border:1px solid #ccc; padding:5px; text-align:center; }
+</style>
 </head>
 <body>
 
-<h1>Bazi System</h1>
+<header>命理分析系统_完整版</header>
+<nav>
+    <button class="tab-btn active" data-tab="bazi">八字排盘</button>
+    <button class="tab-btn" data-tab="ziwei">紫微斗数</button>
+    <button class="tab-btn" data-tab="liuqiao">六爻占卜</button>
+    <button class="tab-btn" data-tab="tools">通用工具</button>
+    <button class="tab-btn" data-tab="settings">系统设置</button>
+</nav>
 
-<label>Birth Date:</label>
-<input type="datetime-local" id="birth">
+<section id="bazi" class="active">
+    <h2>八字排盘</h2>
 
-<label>Gender:</label>
-<select id="gender">
-<option value="1">Male</option>
-<option value="0">Female</option>
-</select>
+    <label>出生日期时间 (公历)：</label>
+    <input type="datetime-local" id="birth_datetime">
 
-<button onclick="calculate()">Calculate</button>
+    <label>性别：</label>
+    <select id="gender">
+        <option value="1">男</option>
+        <option value="0">女</option>
+    </select>
 
-<pre id="result"></pre>
+    <label>出生地（省/市/区）：</label>
+    <select id="province"><option value="">选择省</option></select>
+    <select id="city"><option value="">选择市</option></select>
+    <select id="district"><option value="">选择区/县</option></select>
 
+    <label>分析模块：</label>
+    <input type="checkbox" id="module_dayMaster"> 日主调候
+    <input type="checkbox" id="module_blind"> 盲派做功
+
+    <button class="action" id="startBazi">开始排盘</button>
+
+    <div class="result-box" id="baziResult"></div>
+</section>
+
+<section id="ziwei"><h2>紫微斗数排盘</h2><p>功能待接入排盘引擎。</p></section>
+<section id="liuqiao"><h2>六爻占卜</h2><p>功能待接入起卦逻辑。</p></section>
+<section id="tools"><h2>通用工具</h2><p>高级工具待开发。</p></section>
+<section id="settings"><h2>系统设置</h2><p>界面及规则库设置。</p></section>
+
+<script src="baziEngine.js"></script>
 <script>
-async function calculate(){
-    const birth = document.getElementById("birth").value;
-    const gender = document.getElementById("gender").value;
+// 选项卡切换
+const tabs = document.querySelectorAll(".tab-btn");
+const sections = document.querySelectorAll("section");
+tabs.forEach(btn=>{
+    btn.addEventListener("click",()=>{
+        tabs.forEach(b=>b.classList.remove("active"));
+        btn.classList.add("active");
+        sections.forEach(sec=>sec.classList.remove("active"));
+        document.getElementById(btn.dataset.tab).classList.add("active");
+    });
+});
 
-    const response = await fetch("https://REPLACE_WITH_YOUR_WORKER.workers.dev",{
+// 出生地三级联动
+const provinces={"北京":["北京市"],"广东":["广州市","深圳市"]};
+const districts={"北京市":["东城区","西城区"],"广州市":["天河区","越秀区"],"深圳市":["福田区","南山区"]};
+const provinceSelect=document.getElementById("province");
+const citySelect=document.getElementById("city");
+const districtSelect=document.getElementById("district");
+for(let p in provinces) provinceSelect.add(new Option(p,p));
+provinceSelect.addEventListener("change",()=>{
+    citySelect.length=1; districtSelect.length=1;
+    const cs=provinces[provinceSelect.value]||[];
+    cs.forEach(c=>citySelect.add(new Option(c,c)));
+});
+citySelect.addEventListener("change",()=>{
+    districtSelect.length=1;
+    const ds=districts[citySelect.value]||[];
+    ds.forEach(d=>districtSelect.add(new Option(d,d)));
+});
+
+// AJAX 调用 Worker
+document.getElementById("startBazi").addEventListener("click",()=>{
+    const birth=document.getElementById("birth_datetime").value;
+    const gender=parseInt(document.getElementById("gender").value);
+    const dayMaster=document.getElementById("module_dayMaster").checked;
+    const blind=document.getElementById("module_blind").checked;
+    const province=provinceSelect.value;
+    const city=citySelect.value;
+    const district=districtSelect.value;
+
+    if(!birth){ alert("请选择出生日期"); return; }
+
+    fetch("https://luoqingyu90.workers.dev/bazi",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({birth:birth,gender:gender})
-    });
-
-    const data = await response.json();
-    document.getElementById("result").innerText = JSON.stringify(data,null,2);
-}
+        body:JSON.stringify({
+            birth:birth,
+            gender:gender,
+            module_dayMaster:dayMaster,
+            module_blind:blind,
+            province:province,
+            city:city,
+            district:district
+        })
+    }).then(res=>res.json())
+      .then(data=>{
+        if(data.error){ alert(data.error); return; }
+        let html="<h3>四柱八字</h3><ul>";
+        ["年柱","月柱","日柱","时柱"].forEach((name,i)=>{ html+=`<li>${name}: ${data.fourPillars[i]}</li>`; });
+        html+="</ul>";
+        html+="<h3>五行统计（含藏干）</h3><pre>"+JSON.stringify(data.wuXingFull,null,2)+"</pre>";
+        html+="<h3>十神分析</h3><pre>"+JSON.stringify(data.shiShen,null,2)+"</pre>";
+        html+="<h3>起运信息</h3>";
+        html+=`<p>起运年龄：${data.startLuck.age}岁</p>`;
+        html+=`<p>起运日期：${data.startLuck.date}</p>`;
+        html+="<h3>大运列表</h3><table><tr><th>步数</th><th>大运干支</th><th>起运年龄</th><th>起运日期</th><th>五行</th><th>十神</th></tr>";
+        data.luckCycles.forEach(c=>{
+            html+=`<tr>
+<td>${c.step}</td>
+<td>${c.luckPillar}</td>
+<td>${c.startAge}</td>
+<td>${c.startDate}</td>
+<td>天干:${c.wuXing.tiangan},地支:${c.wuXing.dizhi},藏干:${c.wuXing.canggan}</td>
+<td>天干:${c.shiShen.tiangan},地支:${c.shiShen.dizhi}</td>
+</tr>`;
+        });
+        html+="</table>";
+        document.getElementById("baziResult").innerHTML=html;
+      }).catch(err=>{ alert("请求失败："+err); });
+});
 </script>
 
 </body>
