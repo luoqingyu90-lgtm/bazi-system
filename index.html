@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Bazi System</title>
+</head>
+<body>
+
+<h1>Bazi System</h1>
+
+<label>Birth Date:</label>
+<input type="datetime-local" id="birth">
+
+<label>Gender:</label>
+<select id="gender">
+<option value="1">Male</option>
+<option value="0">Female</option>
+</select>
+
+<button onclick="calculate()">Calculate</button>
+
+<pre id="result"></pre>
+
+<script>
+async function calculate(){
+    const birth = document.getElementById("birth").value;
+    const gender = document.getElementById("gender").value;
+
+    const response = await fetch("https://REPLACE_WITH_YOUR_WORKER.workers.dev",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({birth:birth,gender:gender})
+    });
+
+    const data = await response.json();
+    document.getElementById("result").innerText = JSON.stringify(data,null,2);
+}
+</script>
+
+</body>
+</html>
