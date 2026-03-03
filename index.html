@@ -1,149 +1,295 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<title>命理分析系统_完整版</title>
-<style>
-body { font-family:"Microsoft YaHei",sans-serif; margin:0; padding:0; background:#f5f5f5; }
-header { background:#2c3e50; color:#fff; padding:10px 20px; font-size:24px; }
-nav { display:flex; background:#34495e; }
-nav button { flex:1; padding:10px; border:none; background:#34495e; color:#fff; cursor:pointer; }
-nav button.active { background:#1abc9c; }
-section { display:none; padding:20px; background:#fff; margin:10px; border-radius:5px; }
-section.active { display:block; }
-label { display:block; margin:10px 0 5px; }
-input, select { padding:5px; width:200px; }
-button.action { padding:5px 10px; margin-top:10px; cursor:pointer; background:#1abc9c; color:#fff; border:none; }
-.result-box { margin-top:20px; padding:10px; background:#ecf0f1; border-radius:5px; max-height:500px; overflow:auto; }
-table { width:100%; border-collapse:collapse; margin-top:10px; }
-table th, table td { border:1px solid #ccc; padding:5px; text-align:center; }
-</style>
-</head>
-<body>
+// ===== 顶级商业八字核心引擎 =====
+// 1900-2100 高精度
+// 北京时间基准
+// 单文件可直接部署 Cloudflare Worker
 
-<header>命理分析系统_完整版</header>
-<nav>
-    <button class="tab-btn active" data-tab="bazi">八字排盘</button>
-    <button class="tab-btn" data-tab="ziwei">紫微斗数</button>
-    <button class="tab-btn" data-tab="liuqiao">六爻占卜</button>
-    <button class="tab-btn" data-tab="tools">通用工具</button>
-    <button class="tab-btn" data-tab="settings">系统设置</button>
-</nav>
+addEventListener("fetch", event => {
+  event.respondWith(handleRequest(event.request));
+});
 
-<section id="bazi" class="active">
-    <h2>八字排盘</h2>
+const GAN = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"];
+const ZHI = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"];
 
-    <label>出生日期时间 (公历)：</label>
-    <input type="datetime-local" id="birth_datetime">
+const GAN_WUXING = {
+  甲:"木",乙:"木",
+  丙:"火",丁:"火",
+  戊:"土",己:"土",
+  庚:"金",辛:"金",
+  壬:"水",癸:"水"
+};
 
-    <label>性别：</label>
-    <select id="gender">
-        <option value="1">男</option>
-        <option value="0">女</option>
-    </select>
+const YIN_YANG = {
+  甲:1,乙:0,丙:1,丁:0,戊:1,己:0,庚:1,辛:0,壬:1,癸:0
+};
 
-    <label>出生地（省/市/区）：</label>
-    <select id="province"><option value="">选择省</option></select>
-    <select id="city"><option value="">选择市</option></select>
-    <select id="district"><option value="">选择区/县</option></select>
+const ZHI_CANGGAN = {
+  子:["癸"],
+  丑:["己","癸","辛"],
+  寅:["甲","丙","戊"],
+  卯:["乙"],
+  辰:["戊","乙","癸"],
+  巳:["丙","戊","庚"],
+  午:["丁","己"],
+  未:["己","丁","乙"],
+  申:["庚","壬","戊"],
+  酉:["辛"],
+  戌:["戊","辛","丁"],
+  亥:["壬","甲"]
+};
 
-    <label>分析模块：</label>
-    <input type="checkbox" id="module_dayMaster"> 日主调候
-    <input type="checkbox" id="module_blind"> 盲派做功
+const SOLAR_TERM_INFO = [
+0,21208,42467,63836,85337,107014,
+128867,150921,173149,195551,218072,240693,
+263343,285989,308563,331033,353350,375494,
+397447,419210,440795,462224,483532,504758
+];
 
-    <button class="action" id="startBazi">开始排盘</button>
+// ===== 儒略日 =====
 
-    <div class="result-box" id="baziResult"></div>
-</section>
+function toJulianDay(date){
+  let y = date.getUTCFullYear();
+  let m = date.getUTCMonth()+1;
+  let d = date.getUTCDate() +
+          date.getUTCHours()/24 +
+          date.getUTCMinutes()/1440 +
+          date.getUTCSeconds()/86400;
 
-<section id="ziwei"><h2>紫微斗数排盘</h2><p>功能待接入排盘引擎。</p></section>
-<section id="liuqiao"><h2>六爻占卜</h2><p>功能待接入起卦逻辑。</p></section>
-<section id="tools"><h2>通用工具</h2><p>高级工具待开发。</p></section>
-<section id="settings"><h2>系统设置</h2><p>界面及规则库设置。</p></section>
+  if(m<=2){ y--; m+=12; }
 
-<script src="baziEngine.js"></script>
-<script>
-// 选项卡切换
-const tabs = document.querySelectorAll(".tab-btn");
-const sections = document.querySelectorAll("section");
-tabs.forEach(btn=>{
-    btn.addEventListener("click",()=>{
-        tabs.forEach(b=>b.classList.remove("active"));
-        btn.classList.add("active");
-        sections.forEach(sec=>sec.classList.remove("active"));
-        document.getElementById(btn.dataset.tab).classList.add("active");
+  let A = Math.floor(y/100);
+  let B = 2 - A + Math.floor(A/4);
+
+  return Math.floor(365.25*(y+4716))
+       + Math.floor(30.6001*(m+1))
+       + d + B - 1524.5;
+}
+
+// ===== 节气 =====
+
+function getSolarTermDate(year,n){
+  let offTime = 31556925974.7*(year-1900)
+              + SOLAR_TERM_INFO[n]*60000;
+  let base = Date.UTC(1900,0,6,2,5);
+  return new Date(base + offTime + 8*3600000);
+}
+
+// ===== 年柱 =====
+
+function getYearGanzhi(date){
+  let year = date.getUTCFullYear();
+  let lichun = getSolarTermDate(year,2);
+  if(date < lichun) year--;
+
+  let offset = (year-4)%60;
+  if(offset<0) offset+=60;
+
+  return {
+    gan: GAN[offset%10],
+    zhi: ZHI[offset%12]
+  };
+}
+
+// ===== 月柱 =====
+
+function getMonthGanzhi(date){
+  let year = date.getUTCFullYear();
+  let monthIndex = 11;
+
+  for(let i=0;i<12;i++){
+    let term = getSolarTermDate(year,i*2);
+    if(date < term){
+      monthIndex = i-1;
+      break;
+    }
+  }
+
+  if(monthIndex<0){
+    year--;
+    monthIndex=11;
+  }
+
+  let yearGanIndex = (year-4)%10;
+  if(yearGanIndex<0) yearGanIndex+=10;
+
+  let ganIndex = (yearGanIndex*2 + monthIndex +2)%10;
+
+  return {
+    gan: GAN[ganIndex],
+    zhi: ZHI[(monthIndex+2)%12]
+  };
+}
+
+// ===== 日柱 =====
+
+function getDayGanzhi(date){
+  let jd = toJulianDay(date);
+  let offset = Math.floor(jd + 49) % 60;
+  return {
+    gan: GAN[offset%10],
+    zhi: ZHI[offset%12]
+  };
+}
+
+// ===== 时柱 =====
+
+function getHourGanzhi(date,dayGan){
+  let hour = date.getUTCHours();
+  let branchIndex = Math.floor((hour+1)/2)%12;
+  let dayGanIndex = GAN.indexOf(dayGan);
+  let ganIndex = (dayGanIndex*2 + branchIndex)%10;
+
+  return {
+    gan: GAN[ganIndex],
+    zhi: ZHI[branchIndex]
+  };
+}
+
+// ===== 十神完整逻辑 =====
+
+function getShiShen(dayGan,targetGan){
+
+  const generate = {木:"火",火:"土",土:"金",金:"水",水:"木"};
+  const overcome = {木:"土",土:"水",水:"火",火:"金",金:"木"};
+
+  let dayWX = GAN_WUXING[dayGan];
+  let targetWX = GAN_WUXING[targetGan];
+
+  let sameYinYang = YIN_YANG[dayGan] === YIN_YANG[targetGan];
+
+  if(dayGan===targetGan) return "比肩";
+
+  if(dayWX===targetWX)
+    return sameYinYang?"比肩":"劫财";
+
+  if(generate[dayWX]===targetWX)
+    return sameYinYang?"食神":"伤官";
+
+  if(generate[targetWX]===dayWX)
+    return sameYinYang?"偏印":"正印";
+
+  if(overcome[dayWX]===targetWX)
+    return sameYinYang?"偏财":"正财";
+
+  if(overcome[targetWX]===dayWX)
+    return sameYinYang?"七杀":"正官";
+
+  return "未知";
+}
+
+// ===== 五行统计（含藏干）=====
+
+function countWuXing(pillars){
+
+  let count = {木:0,火:0,土:0,金:0,水:0};
+
+  pillars.forEach(p=>{
+    count[GAN_WUXING[p.gan]] += 1;
+
+    ZHI_CANGGAN[p.zhi].forEach(g=>{
+      count[GAN_WUXING[g]] += 0.5;
     });
-});
+  });
 
-// 出生地三级联动
-const provinces={"北京":["北京市"],"广东":["广州市","深圳市"]};
-const districts={"北京市":["东城区","西城区"],"广州市":["天河区","越秀区"],"深圳市":["福田区","南山区"]};
-const provinceSelect=document.getElementById("province");
-const citySelect=document.getElementById("city");
-const districtSelect=document.getElementById("district");
-for(let p in provinces) provinceSelect.add(new Option(p,p));
-provinceSelect.addEventListener("change",()=>{
-    citySelect.length=1; districtSelect.length=1;
-    const cs=provinces[provinceSelect.value]||[];
-    cs.forEach(c=>citySelect.add(new Option(c,c)));
-});
-citySelect.addEventListener("change",()=>{
-    districtSelect.length=1;
-    const ds=districts[citySelect.value]||[];
-    ds.forEach(d=>districtSelect.add(new Option(d,d)));
-});
+  return count;
+}
 
-// AJAX 调用 Worker
-document.getElementById("startBazi").addEventListener("click",()=>{
-    const birth=document.getElementById("birth_datetime").value;
-    const gender=parseInt(document.getElementById("gender").value);
-    const dayMaster=document.getElementById("module_dayMaster").checked;
-    const blind=document.getElementById("module_blind").checked;
-    const province=provinceSelect.value;
-    const city=citySelect.value;
-    const district=districtSelect.value;
+// ===== 起运 =====
 
-    if(!birth){ alert("请选择出生日期"); return; }
+function getStartLuck(date,gender,yearGan){
 
-    fetch("https://luoqingyu90.workers.dev/bazi",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-            birth:birth,
-            gender:gender,
-            module_dayMaster:dayMaster,
-            module_blind:blind,
-            province:province,
-            city:city,
-            district:district
-        })
-    }).then(res=>res.json())
-      .then(data=>{
-        if(data.error){ alert(data.error); return; }
-        let html="<h3>四柱八字</h3><ul>";
-        ["年柱","月柱","日柱","时柱"].forEach((name,i)=>{ html+=`<li>${name}: ${data.fourPillars[i]}</li>`; });
-        html+="</ul>";
-        html+="<h3>五行统计（含藏干）</h3><pre>"+JSON.stringify(data.wuXingFull,null,2)+"</pre>";
-        html+="<h3>十神分析</h3><pre>"+JSON.stringify(data.shiShen,null,2)+"</pre>";
-        html+="<h3>起运信息</h3>";
-        html+=`<p>起运年龄：${data.startLuck.age}岁</p>`;
-        html+=`<p>起运日期：${data.startLuck.date}</p>`;
-        html+="<h3>大运列表</h3><table><tr><th>步数</th><th>大运干支</th><th>起运年龄</th><th>起运日期</th><th>五行</th><th>十神</th></tr>";
-        data.luckCycles.forEach(c=>{
-            html+=`<tr>
-<td>${c.step}</td>
-<td>${c.luckPillar}</td>
-<td>${c.startAge}</td>
-<td>${c.startDate}</td>
-<td>天干:${c.wuXing.tiangan},地支:${c.wuXing.dizhi},藏干:${c.wuXing.canggan}</td>
-<td>天干:${c.shiShen.tiangan},地支:${c.shiShen.dizhi}</td>
-</tr>`;
-        });
-        html+="</table>";
-        document.getElementById("baziResult").innerHTML=html;
-      }).catch(err=>{ alert("请求失败："+err); });
-});
-</script>
+  let isYang = YIN_YANG[yearGan]===1;
+  let forward = (isYang && gender===1) ||
+                (!isYang && gender===0);
 
-</body>
-</html>
+  let year = date.getUTCFullYear();
+  let nextTerm = getSolarTermDate(year,2);
+
+  let diffDays = Math.abs(nextTerm-date)/86400000;
+  let startAge = diffDays/3;
+
+  return {
+    forward,
+    startAge: parseFloat(startAge.toFixed(2))
+  };
+}
+
+// ===== 十步大运 =====
+
+function getLuckList(monthGanIndex,monthZhiIndex,startAge,forward){
+
+  let list=[];
+
+  for(let i=0;i<10;i++){
+    let step = forward?i+1:-(i+1);
+
+    let gan = GAN[(monthGanIndex+step+100)%10];
+    let zhi = ZHI[(monthZhiIndex+step+100)%12];
+
+    list.push({
+      step:i+1,
+      ganzhi:gan+zhi,
+      startAge:parseFloat((startAge+i*10).toFixed(2))
+    });
+  }
+
+  return list;
+}
+
+// ===== 主入口 =====
+
+function calculateBazi(birthISO,gender){
+
+  let date = new Date(birthISO);
+
+  let year = getYearGanzhi(date);
+  let month = getMonthGanzhi(date);
+  let day = getDayGanzhi(date);
+  let hour = getHourGanzhi(date,day.gan);
+
+  let pillars=[year,month,day,hour];
+
+  let wuxing=countWuXing(pillars);
+
+  let shishen={
+    year:getShiShen(day.gan,year.gan),
+    month:getShiShen(day.gan,month.gan),
+    hour:getShiShen(day.gan,hour.gan)
+  };
+
+  let startLuck=getStartLuck(date,gender,year.gan);
+
+  let luckList=getLuckList(
+    GAN.indexOf(month.gan),
+    ZHI.indexOf(month.zhi),
+    startLuck.startAge,
+    startLuck.forward
+  );
+
+  return {
+    fourPillars:[
+      year.gan+year.zhi,
+      month.gan+month.zhi,
+      day.gan+day.zhi,
+      hour.gan+hour.zhi
+    ],
+    wuxing,
+    shishen,
+    startLuck,
+    luckList
+  };
+}
+
+async function handleRequest(request){
+
+  if(request.method==="POST"){
+    let data=await request.json();
+
+    let result=calculateBazi(data.birth,data.gender);
+
+    return new Response(JSON.stringify(result,null,2),{
+      headers:{"Content-Type":"application/json"}
+    });
+  }
+
+  return new Response("Professional Bazi Engine Ready");
+}
